@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String  @id @default(uuid()) @db.Char(36)
+  email     String  @unique @db.VarChar(255)
+  username  String  @unique @db.VarChar(20)
+  avatar    String? @db.VarChar(2048)
+  bio       String? @db.Text
+  isOnline  Boolean @default(false)
+  isPrivate Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  credential UserCredential?
+  followers  Follow[] @relation("UserFollowers")
+  following  Follow[] @relation("UserFollowing")
+  blocking   Block[]  @relation("UserBlocking")
+  blockedBy  Block[]  @relation("UserBlockedBy")
+
+  // chat relations
+  conversationsCreated Conversation[]      @relation("UserConversationsCreated")
+  conversationMembers  ConversationMember[] @relation("UserConversationMembers")
+  messages             Message[]            @relation("UserMessages")
+
+  @@map("users")
+}
+
+model UserCredential {
+  id           String  @id @db.Char(36)
+  email        String  @unique @db.VarChar(255)
+  password     String  @db.VarChar(255)
+  refreshToken String? @db.VarChar(500)
+  isVerified   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@map("users_credentials")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid()) @db.Char(36)
+  email     String   @db.VarChar(255)
+  code      String   @db.VarChar(10)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@map("otp_codes")
+}
+
+model Follow {
+  id          String   @id @default(uuid()) @db.Char(36)
+  followerId  String   @db.Char(36)
+  followingId String   @db.Char(36)
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+model Block {
+  id        String   @id @default(uuid()) @db.Char(36)
+  blockerId String   @db.Char(36)
+  blockedId String   @db.Char(36)
+  createdAt DateTime @default(now())
+
+  blocker User @relation("UserBlocking", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("UserBlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("blocks")
+}
+
+// =======================
+// Chat / Messaging models
+// =======================
+
+enum ConversationType {
+  PRIVATE
+  GROUP
+}
+
+enum ConversationMemberRole {
+  MEMBER
+  ADMIN
+  OWNER
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  FILE
+}
+
+model Conversation {
+  id           String           @id @default(uuid()) @db.Char(36)
+  type         ConversationType @default(PRIVATE)
+  title        String?          @db.VarChar(255)
+  createdById  String           @db.Char(36)
+  isGroup      Boolean          @default(false)
+
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  createdBy    User             @relation("UserConversationsCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  members      ConversationMember[]
+  messages     Message[]
+
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id             String                 @id @default(uuid()) @db.Char(36)
+  conversationId String                 @db.Char(36)
+  userId         String                 @db.Char(36)
+  role           ConversationMemberRole @default(MEMBER)
+  joinedAt       DateTime               @default(now())
+  leftAt         DateTime?
+
+  conversation   Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User                   @relation("UserConversationMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([conversationId])
+  @@map("conversation_members")
+}
+
+model Message {
+  id             String      @id @default(uuid()) @db.Char(36)
+  conversationId String      @db.Char(36)
+  senderId       String      @db.Char(36)
+  content        String      @db.Text
+  type           MessageType @default(TEXT)
+  isDeleted      Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("UserMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
