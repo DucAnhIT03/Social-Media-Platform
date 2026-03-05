@@ -18,7 +18,7 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {
     this.accessTokenTtl =
-      this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '15m';
+      this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '7d';
     this.refreshTokenTtl =
       this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d';
   }

@@ -26,6 +26,10 @@ model User {
   blocking   Block[]  @relation("UserBlocking")
   blockedBy  Block[]  @relation("UserBlockedBy")
 
+  // notifications
+  notificationsReceived Notification[] @relation("NotificationsUser")
+  notificationsSent     Notification[] @relation("NotificationsFromUser")
+
   // chat relations
   conversationsCreated Conversation[]      @relation("UserConversationsCreated")
   conversationMembers  ConversationMember[] @relation("UserConversationMembers")
@@ -112,6 +116,10 @@ enum MessageType {
   FILE
 }
 
+enum NotificationType {
+  FRIEND_REQUEST
+}
+
 model Conversation {
   id           String           @id @default(uuid()) @db.Char(36)
   type         ConversationType @default(PRIVATE)
@@ -164,4 +172,20 @@ model Message {
   @@index([conversationId, createdAt])
   @@index([senderId])
   @@map("messages")
+}
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Char(36)
+  userId     String           @db.Char(36)
+  fromUserId String           @db.Char(36)
+  type       NotificationType
+  isRead     Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  readAt     DateTime?
+
+  user     User @relation("NotificationsUser", fields: [userId], references: [id], onDelete: Cascade)
+  fromUser User @relation("NotificationsFromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
 }

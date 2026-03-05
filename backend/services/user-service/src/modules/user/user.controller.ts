@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../shared/auth/jwt.guard';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
-import { SearchUserDto } from './dto/search-user.dto';
+import { SearchUserQueryDto } from './dto/search-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
@@ -35,8 +35,50 @@ export class UserController {
 
   // 7. Search user theo username (có phân trang)
   @Get('search')
-  search(@Query() s: SearchUserDto, @Query() q: PaginationQueryDto) {
-    return this.userService.search(s.username, q);
+  search(@Query() query: SearchUserQueryDto) {
+    return this.userService.search(query.username, query);
+  }
+
+  // Gợi ý kết bạn dựa trên bạn chung / bạn của bạn (cần JWT)
+  @UseGuards(JwtAuthGuard)
+  @Get('recommendations')
+  recommend(@Req() req: any, @Query() q: PaginationQueryDto) {
+    return this.userService.recommend(req.user.userId, q);
+  }
+
+  // Danh sách lời mời kết bạn nhận được (chưa xử lý)
+  @UseGuards(JwtAuthGuard)
+  @Get('me/friend-requests')
+  friendRequests(@Req() req: any, @Query() q: PaginationQueryDto) {
+    return this.userService.listFriendRequests(req.user.userId, q);
+  }
+
+  // Xử lý lời mời kết bạn: chấp nhận
+  @UseGuards(JwtAuthGuard)
+  @Post('me/friend-requests/:id/accept')
+  acceptFriendRequest(@Req() req: any, @Param('id') id: string) {
+    return this.userService.acceptFriendRequest(req.user.userId, id);
+  }
+
+  // Xử lý lời mời kết bạn: từ chối
+  @UseGuards(JwtAuthGuard)
+  @Post('me/friend-requests/:id/reject')
+  rejectFriendRequest(@Req() req: any, @Param('id') id: string) {
+    return this.userService.rejectFriendRequest(req.user.userId, id);
+  }
+
+  // Danh sách id người dùng mà current user đã follow (kết bạn)
+  @UseGuards(JwtAuthGuard)
+  @Get('me/following-ids')
+  followingIds(@Req() req: any) {
+    return this.userService.listFollowingIds(req.user.userId);
+  }
+
+  // Danh sách bạn bè (mutual follow)
+  @UseGuards(JwtAuthGuard)
+  @Get('me/friends')
+  friends(@Req() req: any, @Query() q: PaginationQueryDto) {
+    return this.userService.listFriends(req.user.userId, q);
   }
 
   // 1. Lấy profile theo id (public)
