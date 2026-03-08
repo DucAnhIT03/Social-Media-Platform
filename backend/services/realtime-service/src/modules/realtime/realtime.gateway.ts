@@ -187,8 +187,19 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       case 'message.created': {
         const conversationId = payload?.conversationId;
         if (!conversationId) return;
+
         const room = this.getConversationRoom(conversationId);
         this.server.to(room).emit('message.created', payload);
+
+        const recipientIds = Array.isArray(payload?.recipientIds)
+          ? (payload.recipientIds as string[])
+          : [];
+
+        recipientIds.forEach((userId) => {
+          const userRoom = this.getUserRoom(userId);
+          this.server.to(userRoom).emit('message.created', payload);
+        });
+
         break;
       }
       case 'notification.created': {

@@ -90,5 +90,14 @@ export class ChatController {
   ) {
     return this.chatService.leaveGroup(req.user.userId, conversationId);
   }
+
+  // 8. Remove conversation for current user
+  @Delete('conversations/:id')
+  removeConversation(
+    @Req() req: RequestWithUser,
+    @Param('id') conversationId: string,
+  ) {
+    return this.chatService.removeConversation(req.user.userId, conversationId);
+  }
 }
 

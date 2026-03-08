@@ -4,22 +4,33 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ChatRepository } from './chat.repository';
-import { CreateConversationDto, ConversationKind } from './dto/create-conversation.dto';
+import {
+  CreateConversationDto,
+  ConversationKind,
+} from './dto/create-conversation.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { AddMemberDto } from './dto/add-member.dto';
+import { EventBusService } from '../../shared/events/event-bus.service';
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly repo: ChatRepository) {}
+  constructor(
+    private readonly repo: ChatRepository,
+    private readonly eventBus: EventBusService,
+  ) {}
 
   async createConversation(currentUserId: string, dto: CreateConversationDto) {
     if (dto.type === ConversationKind.PRIVATE) {
       if (!dto.participantId) {
-        throw new ForbiddenException('participantId is required for private conversation');
+        throw new ForbiddenException(
+          'participantId is required for private conversation',
+        );
       }
       if (dto.participantId === currentUserId) {
-        throw new ForbiddenException('Cannot create private conversation with yourself');
+        throw new ForbiddenException(
+          'Cannot create private conversation with yourself',
+        );
       }
       return this.repo.createPrivateConversation(currentUserId, dto.participantId);
     }
@@ -49,7 +60,24 @@ export class ChatService {
       throw new ForbiddenException('You are not a member of this conversation');
     }
 
-    return this.repo.sendMessage(dto.conversationId, currentUserId, dto.content);
+    const message = await this.repo.sendMessage(
+      dto.conversationId,
+      currentUserId,
+      dto.content,
+    );
+
+    const recipientIds = await this.repo.listActiveMemberIds(dto.conversationId);
+
+    await this.eventBus.publish('message.created', {
+      id: message.id,
+      conversationId: message.conversationId,
+      senderId: message.senderId,
+      content: message.content,
+      createdAt: message.createdAt,
+      recipientIds,
+    });
+
+    return message;
   }
 
   async getMessages(
@@ -95,10 +123,7 @@ export class ChatService {
       throw new ForbiddenException('Only group members can add users to group');
     }
 
-    if (
-      membership.role !== 'OWNER' &&
-      membership.role !== 'ADMIN'
-    ) {
+    if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
       throw new ForbiddenException('Only owner or admin can add members');
     }
 
@@ -119,5 +144,18 @@ export class ChatService {
     await this.repo.leaveConversation(conversationId, currentUserId);
     return { success: true };
   }
-}
 
+  async removeConversation(currentUserId: string, conversationId: string) {
+    const membership = await this.repo.ensureUserInConversation(
+      conversationId,
+      currentUserId,
+    );
+
+    if (!membership) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    await this.repo.removeConversationForUser(conversationId, currentUserId);
+    return { success: true };
+  }
+}

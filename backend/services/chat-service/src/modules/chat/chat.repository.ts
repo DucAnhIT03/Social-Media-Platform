@@ -20,6 +20,40 @@ export class ChatRepository {
     participantId: string,
   ) {
     return this.client.$transaction(async (tx) => {
+      const existing = await tx.conversation.findFirst({
+        where: {
+          type: ConversationType.PRIVATE,
+          isGroup: false,
+          members: {
+            some: { userId: currentUserId },
+          },
+          AND: [
+            {
+              members: {
+                some: { userId: participantId },
+              },
+            },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (existing) {
+        await tx.conversationMember.updateMany({
+          where: {
+            conversationId: existing.id,
+            userId: {
+              in: [currentUserId, participantId],
+            },
+          },
+          data: {
+            leftAt: null,
+          },
+        });
+
+        return existing;
+      }
+
       const conversation = await tx.conversation.create({
         data: {
           type: ConversationType.PRIVATE,
@@ -84,7 +118,7 @@ export class ChatRepository {
     skip: number,
     take: number,
   ): Promise<{ items: any[]; total: number }> {
-    const [items, total] = await this.client.$transaction([
+    const [items] = await this.client.$transaction([
       this.client.conversationMember.findMany({
         where: {
           userId,
@@ -130,10 +164,37 @@ export class ChatRepository {
       isGroup: m.conversation.isGroup,
       createdAt: m.conversation.createdAt,
       updatedAt: m.conversation.updatedAt,
+      memberIds: m.conversation.members.map((member) => member.userId),
       lastMessage: m.conversation.messages[0] ?? null,
     }));
 
-    return { items: mapped, total };
+    const deduped = new Map<string, (typeof mapped)[number]>();
+
+    for (const conversation of mapped) {
+      const key =
+        conversation.type === ConversationType.PRIVATE
+          ? `private:${[...conversation.memberIds].sort().join(':')}`
+          : `conversation:${conversation.id}`;
+
+      const existed = deduped.get(key);
+      if (!existed) {
+        deduped.set(key, conversation);
+        continue;
+      }
+
+      if (new Date(conversation.updatedAt) > new Date(existed.updatedAt)) {
+        deduped.set(key, conversation);
+      }
+    }
+
+    const dedupedItems = Array.from(deduped.values())
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      )
+      .map(({ memberIds, ...rest }) => rest);
+
+    return { items: dedupedItems, total: dedupedItems.length };
   }
 
   async ensureUserInConversation(conversationId: string, userId: string) {
@@ -172,6 +233,20 @@ export class ChatRepository {
 
       return message;
     });
+  }
+
+  async listActiveMemberIds(conversationId: string): Promise<string[]> {
+    const members = await this.client.conversationMember.findMany({
+      where: {
+        conversationId,
+        leftAt: null,
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    return members.map((m) => m.userId);
   }
 
   async listMessages(
@@ -234,6 +309,19 @@ export class ChatRepository {
   }
 
   async leaveConversation(conversationId: string, userId: string) {
+    return this.client.conversationMember.updateMany({
+      where: {
+        conversationId,
+        userId,
+        leftAt: null,
+      },
+      data: {
+        leftAt: new Date(),
+      },
+    });
+  }
+
+  async removeConversationForUser(conversationId: string, userId: string) {
     return this.client.conversationMember.updateMany({
       where: {
         conversationId,

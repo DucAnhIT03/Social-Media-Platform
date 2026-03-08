@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -151,6 +152,34 @@ export class AuthService {
     return { success: true };
   }
 
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
+    }
+
+    const credential = await this.prisma.userCredential.findUnique({
+      where: { id: userId },
+    });
+
+    if (!credential) {
+      throw new UnauthorizedException('Không tìm thấy tài khoản');
+    }
+
+    const matched = await bcrypt.compare(dto.currentPassword, credential.password);
+    if (!matched) {
+      throw new BadRequestException('Mật khẩu hiện tại không đúng');
+    }
+
+    const newHashed = await bcrypt.hash(dto.newPassword, 10);
+
+    await this.prisma.userCredential.update({
+      where: { id: userId },
+      data: { password: newHashed },
+    });
+
+    return { success: true };
+  }
+
   async validateToken(token: string) {
     try {
       const payload = await this.jwtService.verifyAsync(token, {
@@ -165,18 +194,25 @@ export class AuthService {
   private async generateTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
 
+    const accessSignOptions: any = {
+      secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
+    };
+    const refreshSignOptions: any = {
+      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+    };
+
+    if (this.accessTokenTtl !== 'never') {
+      accessSignOptions.expiresIn = this.accessTokenTtl;
+    }
+    if (this.refreshTokenTtl !== 'never') {
+      refreshSignOptions.expiresIn = this.refreshTokenTtl;
+    }
+
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
-        expiresIn: this.accessTokenTtl as any,
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.refreshTokenTtl as any,
-      }),
+      this.jwtService.signAsync(payload, accessSignOptions),
+      this.jwtService.signAsync(payload, refreshSignOptions),
     ]);
 
     return { accessToken, refreshToken };
   }
 }
-
