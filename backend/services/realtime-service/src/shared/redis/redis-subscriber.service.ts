@@ -24,8 +24,14 @@ export class RedisSubscriberService implements OnModuleInit, OnModuleDestroy {
     const channels = [
       'message.created',
       'user.typing',
-      'call.offer',
-      'call.answer',
+      'video-call.offer',
+      'video-call.answer',
+      'video-call.ice-candidate',
+      'video-call.end',
+      'audio-call.offer',
+      'audio-call.answer',
+      'audio-call.ice-candidate',
+      'audio-call.end',
       'notification.created',
     ];
 

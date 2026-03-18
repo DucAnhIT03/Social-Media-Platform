@@ -1,0 +1,5 @@
+{
+  "name": "SocialWeb",
+  "description": "A modern social media dashboard with feeds, messaging, and video calls.",
+  "requestFramePermissions": ["camera", "microphone"]
+}

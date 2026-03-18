@@ -191,8 +191,7 @@ export class ChatRepository {
       .sort(
         (a, b) =>
           new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      )
-      .map(({ memberIds, ...rest }) => rest);
+      );
 
     return { items: dedupedItems, total: dedupedItems.length };
   }

@@ -1,9 +1,161 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../../../libs/database/prisma.service';
 
 @Injectable()
 export class UserRepository {
+  private postsTableInitialized = false;
+
   constructor(private readonly prisma: PrismaService) {}
+
+  private async ensurePostsTable() {
+    if (this.postsTableInitialized) {
+      return;
+    }
+
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS posts (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        authorId CHAR(36) NOT NULL,
+        content TEXT NOT NULL,
+        imageUrl VARCHAR(2048) NULL,
+        postType VARCHAR(32) NOT NULL DEFAULT 'POST',
+        shortVideoUrl VARCHAR(2048) NULL,
+        createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updatedAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+        INDEX idx_posts_authorId (authorId),
+        INDEX idx_posts_createdAt (createdAt),
+        INDEX idx_posts_postType (postType)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Backward-compatible migration for old environments that already have `posts`.
+    await this.prisma
+      .$executeRawUnsafe(
+        `ALTER TABLE posts ADD COLUMN postType VARCHAR(32) NOT NULL DEFAULT 'POST' AFTER imageUrl`,
+      )
+      .catch(() => undefined);
+    await this.prisma
+      .$executeRawUnsafe(
+        `ALTER TABLE posts ADD COLUMN shortVideoUrl VARCHAR(2048) NULL AFTER postType`,
+      )
+      .catch(() => undefined);
+    await this.prisma
+      .$executeRawUnsafe(`ALTER TABLE posts ADD INDEX idx_posts_postType (postType)`)
+      .catch(() => undefined);
+
+    this.postsTableInitialized = true;
+  }
+
+  async createPost(
+    authorId: string,
+    content: string,
+    imageUrl?: string | null,
+    postType: 'POST' | 'SHORT_VIDEO' = 'POST',
+    shortVideoUrl?: string | null,
+  ) {
+    await this.ensurePostsTable();
+
+    const id = randomUUID();
+
+    await this.prisma.$executeRaw`
+      INSERT INTO posts (id, authorId, content, imageUrl, postType, shortVideoUrl)
+      VALUES (${id}, ${authorId}, ${content}, ${imageUrl ?? null}, ${postType}, ${shortVideoUrl ?? null})
+    `;
+
+    const rows = await this.prisma.$queryRaw<Array<any>>`
+      SELECT
+        p.id,
+        p.content,
+        p.imageUrl,
+        p.createdAt,
+        p.updatedAt,
+        u.id AS authorId,
+        u.username AS authorUsername,
+        u.avatar AS authorAvatar,
+        u.bio AS authorBio,
+        u.isOnline AS authorIsOnline
+      FROM posts p
+      INNER JOIN users u ON u.id = p.authorId
+      WHERE p.id = ${id}
+      LIMIT 1
+    `;
+
+    return rows[0] ?? null;
+  }
+
+  async listFeedPosts(skip: number, take: number) {
+    await this.ensurePostsTable();
+
+    const [items, totalRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<any>>`
+        SELECT
+          p.id,
+          p.content,
+          p.imageUrl,
+          p.postType,
+          p.shortVideoUrl,
+          p.postType,
+          p.shortVideoUrl,
+          p.createdAt,
+          p.updatedAt,
+          u.id AS authorId,
+          u.username AS authorUsername,
+          u.avatar AS authorAvatar,
+          u.bio AS authorBio,
+          u.isOnline AS authorIsOnline
+        FROM posts p
+        INNER JOIN users u ON u.id = p.authorId
+        ORDER BY p.createdAt DESC
+        LIMIT ${take} OFFSET ${skip}
+      `,
+      this.prisma.$queryRaw<Array<{ total: bigint | number }>>`
+        SELECT COUNT(*) AS total FROM posts
+      `,
+    ]);
+
+    const totalValue = totalRows[0]?.total ?? 0;
+    const total = typeof totalValue === 'bigint' ? Number(totalValue) : Number(totalValue);
+
+    return { items, total };
+  }
+
+  async listShortVideos(skip: number, take: number) {
+    await this.ensurePostsTable();
+
+    const [items, totalRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<any>>`
+        SELECT
+          p.id,
+          p.content,
+          p.imageUrl,
+          p.postType,
+          p.shortVideoUrl,
+          p.createdAt,
+          p.updatedAt,
+          u.id AS authorId,
+          u.username AS authorUsername,
+          u.avatar AS authorAvatar,
+          u.bio AS authorBio,
+          u.isOnline AS authorIsOnline
+        FROM posts p
+        INNER JOIN users u ON u.id = p.authorId
+        WHERE p.postType = 'SHORT_VIDEO' AND p.shortVideoUrl IS NOT NULL
+        ORDER BY p.createdAt DESC
+        LIMIT ${take} OFFSET ${skip}
+      `,
+      this.prisma.$queryRaw<Array<{ total: bigint | number }>>`
+        SELECT COUNT(*) AS total
+        FROM posts
+        WHERE postType = 'SHORT_VIDEO' AND shortVideoUrl IS NOT NULL
+      `,
+    ]);
+
+    const totalValue = totalRows[0]?.total ?? 0;
+    const total = typeof totalValue === 'bigint' ? Number(totalValue) : Number(totalValue);
+
+    return { items, total };
+  }
 
   findById(id: string) {
     return this.prisma.user.findUnique({ where: { id } });
@@ -126,6 +278,17 @@ export class UserRepository {
       data: {
         isRead: true,
         readAt: new Date(),
+      },
+    });
+  }
+
+  async clearPendingFriendRequests(targetUserId: string, fromUserId: string) {
+    return (this.prisma as any).notification.deleteMany({
+      where: {
+        userId: targetUserId,
+        fromUserId,
+        type: 'FRIEND_REQUEST',
+        isRead: false,
       },
     });
   }
@@ -280,7 +443,7 @@ export class UserRepository {
     // Lấy danh sách những người current user đang follow
     const outgoing = await this.prisma.follow.findMany({
       where: { followerId: userId },
-      select: { followingId: true },
+      select: { followingId: true, createdAt: true },
     });
 
     if (outgoing.length === 0) {
@@ -295,33 +458,66 @@ export class UserRepository {
         followerId: { in: outgoingIds },
         followingId: userId,
       },
-      select: { followerId: true },
+      select: { followerId: true, createdAt: true },
     });
 
-    const mutualIds = incoming.map((f) => f.followerId);
-    if (mutualIds.length === 0) {
+    const incomingByFollowerId = new Map(
+      incoming.map((f) => [f.followerId, f.createdAt]),
+    );
+
+    const mutual = outgoing
+      .filter((f) => incomingByFollowerId.has(f.followingId))
+      .map((f) => {
+        const incomingCreatedAt = incomingByFollowerId.get(f.followingId)!;
+        const establishedAt =
+          incomingCreatedAt > f.createdAt ? incomingCreatedAt : f.createdAt;
+
+        return {
+          friendId: f.followingId,
+          establishedAt,
+        };
+      })
+      .sort((a, b) => b.establishedAt.getTime() - a.establishedAt.getTime());
+
+    if (mutual.length === 0) {
       return { items: [], total: 0 };
     }
 
-    const [items, total] = await Promise.all([
-      this.prisma.user.findMany({
-        where: { id: { in: mutualIds } },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take,
-        select: {
-          id: true,
-          username: true,
-          avatar: true,
-          bio: true,
-          isOnline: true,
-          createdAt: true,
-        },
-      }),
-      this.prisma.user.count({ where: { id: { in: mutualIds } } }),
-    ]);
+    const paged = mutual.slice(skip, skip + take);
+    const pagedIds = paged.map((f) => f.friendId);
 
-    return { items, total };
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: pagedIds } },
+      select: {
+        id: true,
+        username: true,
+        avatar: true,
+        bio: true,
+        isOnline: true,
+      },
+    });
+
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    const items = paged
+      .map((f) => {
+        const user = userById.get(f.friendId);
+        if (!user) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          username: user.username,
+          avatar: user.avatar,
+          bio: user.bio,
+          isOnline: user.isOnline,
+          createdAt: f.establishedAt,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    return { items, total: mutual.length };
   }
 }
 

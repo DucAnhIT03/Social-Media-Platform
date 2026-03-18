@@ -209,18 +209,36 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         this.server.to(room).emit('notification.created', payload);
         break;
       }
-      case 'call.offer': {
+      case 'video-call.offer':
+      case 'audio-call.offer': {
         const targetUserId = payload?.targetUserId;
         if (!targetUserId) return;
         const room = this.getUserRoom(targetUserId);
-        this.server.to(room).emit('call.offer', payload);
+        this.server.to(room).emit(channel, payload);
         break;
       }
-      case 'call.answer': {
+      case 'video-call.answer':
+      case 'audio-call.answer': {
         const targetUserId = payload?.targetUserId;
         if (!targetUserId) return;
         const room = this.getUserRoom(targetUserId);
-        this.server.to(room).emit('call.answer', payload);
+        this.server.to(room).emit(channel, payload);
+        break;
+      }
+      case 'video-call.ice-candidate':
+      case 'audio-call.ice-candidate': {
+        const targetUserId = payload?.targetUserId;
+        if (!targetUserId) return;
+        const room = this.getUserRoom(targetUserId);
+        this.server.to(room).emit(channel, payload);
+        break;
+      }
+      case 'video-call.end':
+      case 'audio-call.end': {
+        const targetUserId = payload?.targetUserId;
+        if (!targetUserId) return;
+        const room = this.getUserRoom(targetUserId);
+        this.server.to(room).emit(channel, payload);
         break;
       }
       case 'user.typing': {

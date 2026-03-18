@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from '../../../../../libs/database/database.module';
+import { OtpService } from './otp.service';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { DatabaseModule } from '../../../../../libs/database/database.module';
     JwtModule.register({}), // options are provided dynamically in AuthService
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, OtpService],
 })
 export class AuthModule {}
 

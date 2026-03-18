@@ -5,10 +5,14 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../../shared/auth/jwt.guard';
+import { OtpService } from './otp.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly otpService: OtpService,
+  ) {}
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
@@ -18,6 +22,16 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('send-otp')
+  async sendOtp(@Body('email') email: string) {
+    return this.otpService.sendOtp(email);
+  }
+
+  @Post('verify-otp')
+  async verifyOtp(@Body('email') email: string, @Body('otp') otp: string) {
+    return this.otpService.verifyOtp(email, otp);
   }
 
   @Post('refresh')

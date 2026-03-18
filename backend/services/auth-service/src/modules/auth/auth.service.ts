@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { OtpService } from './otp.service';
 
 @Injectable()
 export class AuthService {
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly otpService: OtpService,
   ) {
     this.accessTokenTtl =
       this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '7d';
@@ -25,6 +27,8 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    await this.otpService.consumeOtp(dto.email, dto.otp);
+
     const existing = await this.prisma.userCredential.findUnique({
       where: { email: dto.email },
     });
@@ -190,7 +194,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid token');
     }
   }
-
   private async generateTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
 

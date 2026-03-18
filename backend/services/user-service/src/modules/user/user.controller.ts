@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,14 +10,18 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../shared/auth/jwt.guard';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { SearchUserQueryDto } from './dto/search-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
+import { CreatePostDto } from './dto/create-post.dto';
 import { UserService } from './user.service';
 
 @Controller('users')
@@ -119,6 +124,41 @@ export class UserController {
   @Get(':id/following')
   following(@Param('id') id: string, @Query() q: PaginationQueryDto) {
     return this.userService.listFollowing(id, q);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/posts')
+  createMyPost(@Req() req: any, @Body() dto: CreatePostDto) {
+    return this.userService.createPost(req.user.userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/uploads')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  uploadMyPostMedia(
+    @Req() req: any,
+    @UploadedFile() file: any,
+    @Query('type') type?: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    return this.userService.uploadPostMedia(req.user.userId, file, type);
+  }
+
+  @Get('feed/posts')
+  listFeedPosts(@Query() q: PaginationQueryDto) {
+    return this.userService.listFeedPosts(q);
+  }
+
+  @Get('feed/short-videos')
+  listShortVideos(@Query() q: PaginationQueryDto) {
+    return this.userService.listShortVideos(q);
   }
 }
 
